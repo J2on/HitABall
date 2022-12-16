@@ -3,7 +3,7 @@ import cocos
 import cocos.layer
 import random
 import time
-
+import math
 import cocos.actions as ac
 import cocos.euclid as eu
 import cocos.collision_model as cm
@@ -14,6 +14,8 @@ from cocos.menu import *
 from collections import defaultdict
 from enum import Enum
 from pyglet.window import key
+import pyglet.image
+from pyglet.image import Animation
 
 class HUD(cocos.layer.Layer):
     def __init__(self):
@@ -27,7 +29,7 @@ class HUD(cocos.layer.Layer):
         #self.ballCountText.position = (20, 80)
         self.scoreText.position = (20, 40)
         #self.add(self.ballCountText)
-        self.add(self.scoreText)
+        #self.add(self.scoreText)
 
     
 
@@ -42,6 +44,15 @@ class HUD(cocos.layer.Layer):
                                      color=(50, 50, 255, 255))
         gameOver.position = w * 0.5, h * 0.5
         self.add(gameOver)
+    
+    def showText(self, textInput):
+        self.anyText = cocos.text.Label(text=textInput, position=(400, 400), font_size = 200)
+        print(22)
+        self.add(self.anyText)
+        time.sleep(1)
+
+    def hideText(self):
+        self.remove(self.anyText)
 
 class GameState(Enum):
     DEADBALL = 1
@@ -61,11 +72,10 @@ class GameLayer(cocos.layer.Layer):
     def on_key_release(self, k, _):
         GameLayer.KEYS_PRESSED[k] = 0
     
-    def __init__(self, hudInput, difficultyInput):
+    def __init__(self, hudInput):
         super(GameLayer, self).__init__()
 
         self.hud = hudInput
-        self.difficulty = difficultyInput
         
         self.inning = 1
         self.homeScore = 0
@@ -93,22 +103,27 @@ class GameLayer(cocos.layer.Layer):
         
 
         #self.picher = cocos.sprite.Sprite('picher.png', position = (400, 360), scale = 0.2 ,color = (255, 255, 255))
-        self.pitcher = Pitcher(400, 575)
-        self.pitcher.setScale(0.3)
+        self.pitcher = Pitcher('asset/pitcherInit.png',400, 575)
         #self.add(self.pitcher)
 
         self.psuedoHitter = cocos.sprite.Sprite('asset/hitter.png', position = (370 ,150), scale = 0.2)
         self.add(self.psuedoHitter)
 
-        self.hitter = Hitter(280, 190) # 150 ~ 230
-        self.hitter.setScale(0.7)
+        self.hitter = Hitter('asset/hitterInit.png',280, 190) # 150 ~ 230
 
         self.catcher = Catcher(400, 90) # 110까지 
         self.add(self.catcher)
 
-        #self.inGamePitcher = Pitcher(400, 570)
-        
+        self.homeScoreText = cocos.sprite.Sprite('asset/score0.png', position=(20, 20), scale= 1)
+        self.awayScoreText = cocos.sprite.Sprite('asset/score0.png', position=(80, 20), scale= 1)
 
+        self.add(self.homeScoreText)
+        self.add(self.awayScoreText)
+
+        #self.inGamePitcher = Pitcher(400, 570)
+        #self.backBoard = cocos.sprite.Sprite('asset/backBoard.png', position = (40 ,40), scale = 1)
+        #self.add(self.backBoard)
+        self.updateBillBoard(self.strikeCount,self.ballCount,self.outCount,self.baseSet)
         self.ball = Ball()
 
         self.defencePosition = [[550,350],[480,440],[250,350],[320,440],[170,550],[400,600],[630,550], [400, 320]]
@@ -124,15 +139,20 @@ class GameLayer(cocos.layer.Layer):
         pressed = GameLayer.KEYS_PRESSED
         space_pressed = pressed[key.SPACE] == 1
         enter_pressed = pressed[key.ENTER] == 1
-
         if(GameLayer.GAMESTATE == GameState.DEADBALL):
+            if(self.outCount == 3):
+                self.gameEnd()
+
             if(self.isInGameBgSet == False):
                 self.inGameSet(self.strikeCount, self.ballCount, self.outCount)
             
-            if(enter_pressed):
-                GameLayer.GAMESTATE = GameState.PITCH
-                self.ball.__init__()
-                self.add(self.ball)
+            if(enter_pressed or self.pitcher.ANIMPLAYING):
+                print(self.pitcher.ANIMPLAYING)
+                self.pitcher.pitch()
+                
+                if(self.pitcher.ANIMPLAYING == False):
+                    self.ball.__init__()
+                    self.add(self.ball)
 
         elif(GameLayer.GAMESTATE == GameState.PITCH):
             self.collman.clear()
@@ -152,11 +172,13 @@ class GameLayer(cocos.layer.Layer):
                         self.ballCall()
                     self.rmIngameScene()
                     time.sleep(1)
-                elif(obj == self.hitter and space_pressed):
-                    GameLayer.GAMESTATE = GameState.DEFENCE
-                    print(self.ball.position[1])
-                    self.ball.hit(self.homeX, self.homeY)
-                    self.rmIngameScene()
+                elif((obj == self.hitter and space_pressed) or self.hitter.ANIMPLAYING):
+                    self.hitter.swing()
+
+                    if(self.hitter.ANIMPLAYING == False):
+                        self.add(self.ball.shadow)
+                        self.ball.hit(self.homeX, self.homeY)
+                        self.rmIngameScene()
 
                 
         elif(GameLayer.GAMESTATE == GameState.DEFENCE):
@@ -174,7 +196,7 @@ class GameLayer(cocos.layer.Layer):
                 else: #### 이 부분에 안타 구현해야 함~~~~~~~
                     self.hitUpdate()
                 
-                
+                self.ball.shadow.kill()
                 time.sleep(1)
                 GameLayer.GAMESTATE = GameState.DEADBALL
                 self.ball.kill()
@@ -198,23 +220,60 @@ class GameLayer(cocos.layer.Layer):
             self.collman.add(defender)
             for obj in self.collman.iter_colliding(self.ball):
                 self.outCount += 1
+                self.ball
                 self.newHitter()
+                
                 return True
         return False
+    def gameEnd(self):
+        self.gameEndText = cocos.sprite.Sprite('asset/GameEnd.png', position=(400, 400), scale= 1)
+        self.add(self.gameEndText)
+        time.sleep(999)
 
     def hitUpdate(self):
-        if(self.baseSet[2] == True):
-            self.score(self.homeScore, 1)
+        #거리가 560 이상이면 호무런 self.homeX, self.homeY 랑 fallingPos랑 거리를 구하기
+        flyingDistance = math.sqrt((self.ball.fallingPos[0] - float(self.homeX))**2 + (self.ball.fallingPos[1] - float(self.homeY))**2)
+        
+        if(self.baseSet[0] or self.baseSet[1] or self.baseSet[2]):
+                self.remove(self.BaseBoard)
+        
+        if(flyingDistance > 560):
+            homerunScore = 1
+            for i in range(3):
+                if(self.baseSet[i] == True):
+                    homerunScore += 1
+                    self.baseSet[i] = False
+            self.homerunText = cocos.sprite.Sprite('asset/HomeRun.png', position=(400, 400), scale= 1)
+            self.add(self.homerunText)
+            self.homeScore += homerunScore
+            time.sleep(1)
+            self.homerunText.kill()
+        else:
+            self.hud.showText('Hit!')
+            self.hud.hideText()
+            if(self.baseSet[2] == True):
+                self.homeScore += 1
+            self.baseSet[2] = self.baseSet[1]
+            self.baseSet[1] = self.baseSet[0]
+            self.baseSet[0] = True
+            self.hitText = cocos.sprite.Sprite('asset/Hit.png', position=(400, 400), scale= 1)
+            self.add(self.hitText)
+            
+            time.sleep(0.5)
+            self.hitText.kill()
 
-        self.baseSet[2] = self.baseSet[1]
-        self.baseSet[1] = self.baseSet[0]
-        self.baseSet[0] = True
         self.newHitter()
         
     def newHitter(self):
+        if(self.strikeCount != 0):
+            self.remove(self.strikeBoard)
+        if(self.ballCount != 0):
+            self.remove(self.ballBoard) 
+
+        
         self.strikeCount = 0
-        self.ballCount = 0        
-    
+        self.ballCount = 0 
+
     def strikeCall(self):
         if(self.strikeCount == 0 or self.strikeCount == 1):
             self.strikeCount += 1
@@ -228,7 +287,12 @@ class GameLayer(cocos.layer.Layer):
             self.ballCount += 1
         else:
             self.ballCount = 0
-            #주자 출루 볼넷 만들어야 함
+            if(self.baseSet[2] == True):
+                self.homeScore += 1
+            self.baseSet[2] = self.baseSet[1]
+            self.baseSet[1] = self.baseSet[0]
+            self.baseSet[0] = True
+            self.newHitter()
 
     
     def updateBillBoard(self, strike, ball, out, baseSet):
@@ -255,13 +319,56 @@ class GameLayer(cocos.layer.Layer):
                 elif(numBase == 2):
                     self.BaseBoard = cocos.sprite.Sprite('asset/BaseStripe.png', position=(30, 210), scale= 0.1)
                     self.add(self.BaseBoard)
-    def rmBillBoard(self):
-        if(self.strikeCount != 0):
-            self.remove(self.strikeBoard)
-        if(self.ballCount != 0):
-            self.remove(self.ballBoard)
-        if(self.outCount != 0):
-            self.remove(self.outBoard)
+
+        self.remove(self.homeScoreText)
+        self.remove(self.awayScoreText)
+
+        if(self.homeScore == 0):
+            self.homeScoreText = cocos.sprite.Sprite('asset/score0.png', position=(20, 20), scale= 1)
+        elif(self.homeScore == 1):
+            self.homeScoreText = cocos.sprite.Sprite('asset/score1.png', position=(20, 20), scale= 1)
+        elif(self.homeScore == 2):
+            self.homeScoreText = cocos.sprite.Sprite('asset/score2.png', position=(20, 20), scale= 1)
+        elif(self.homeScore == 3):
+            self.homeScoreText = cocos.sprite.Sprite('asset/score3.png', position=(20, 20), scale= 1)
+        elif(self.homeScore == 4):
+            self.homeScoreText = cocos.sprite.Sprite('asset/score4.png', position=(20, 20), scale= 1)
+        elif(self.homeScore == 5):
+            self.homeScoreText = cocos.sprite.Sprite('asset/score5.png', position=(20, 20), scale= 1)
+        elif(self.homeScore == 6):
+            self.homeScoreText = cocos.sprite.Sprite('asset/score6.png', position=(20, 20), scale= 1)
+        elif(self.homeScore == 7):
+            self.homeScoreText = cocos.sprite.Sprite('asset/score7.png', position=(20, 20), scale= 1)
+        elif(self.homeScore == 8):
+            self.homeScoreText = cocos.sprite.Sprite('asset/score8.png', position=(20, 20), scale= 1)
+        elif(self.homeScore == 9):
+            self.homeScoreText = cocos.sprite.Sprite('asset/score9.png', position=(20, 20), scale= 1)
+
+
+        if(self.awayScore == 0):
+            self.awayScoreText = cocos.sprite.Sprite('asset/score0.png', position=(80, 20), scale= 1)
+        elif(self.awayScore == 1):
+            self.awayScoreText = cocos.sprite.Sprite('asset/score1.png', position=(80, 20), scale= 1)
+        elif(self.awayScore == 2):
+            self.awayScoreText = cocos.sprite.Sprite('asset/score2.png', position=(80, 20), scale= 1)
+        elif(self.awayScore == 3):
+            self.awayScoreText = cocos.sprite.Sprite('asset/score3.png', position=(80, 20), scale= 1)
+        elif(self.awayScore == 4):
+            self.awayScoreText = cocos.sprite.Sprite('asset/score4.png', position=(80, 20), scale= 1)
+        elif(self.awayScore == 5):
+            self.awayScoreText = cocos.sprite.Sprite('asset/score5.png', position=(80, 20), scale= 1)
+        elif(self.awayScore == 6):
+            self.awayScoreText = cocos.sprite.Sprite('asset/score6.png', position=(80, 20), scale= 1)
+        elif(self.awayScore == 7):
+            self.awayScoreText = cocos.sprite.Sprite('asset/score7.png', position=(80, 20), scale= 1)
+        elif(self.awayScore == 8):
+            self.awayScoreText = cocos.sprite.Sprite('asset/score8.png', position=(80, 20), scale= 1)
+        elif(self.awayScore == 9):
+            self.awayScoreText = cocos.sprite.Sprite('asset/score9.png', position=(80, 20), scale= 1)
+        
+        self.add(cocos.sprite.Sprite('asset/ddangddang.png', position=(50, 20), scale= 1))
+        self.add(self.homeScoreText)
+        self.add(self.awayScoreText)
 
 
     def score(self, anyTeamScore, run):
@@ -269,18 +376,23 @@ class GameLayer(cocos.layer.Layer):
         self.hud.updateScore(self.homeScore, self.awayScore)
 
     def inGameSet(self, strike, ball, out):
+        #self.backBoard.kill()
         self.add(self.inGameBg)
         self.add(self.pitcher)
+        self.pitcher.__init__('asset/pitcherInit.png', 400,575)
         self.add(self.hitter)
-                
+        self.hitter.__init__('asset/hitterInit.png', 280, 190)
+        #self.add(self.backBoard)
         self.isInGameBgSet = True
         self.updateBillBoard(strike, ball, out, self.baseSet)
 
     def rmIngameScene(self):
+        #self.backBoard.kill()
         self.isInGameBgSet = False
         self.remove(self.inGameBg)
         self.remove(self.pitcher)
         self.remove(self.hitter)
+        #self.add(self.backBoard)
 
 class Player(cocos.sprite.Sprite):
     def __init__(self, image, x, y):
@@ -305,25 +417,63 @@ class Catcher(Player):
 
 
 class Pitcher(Player):
-    def __init__(self, x, y):
-        super(Pitcher, self).__init__('asset/pitcher.png', x, y)
+    ANIMSTATE = 0
+    ANIMPLAYING = False
+    #raw = pyglet.image.load_animation('asset/pitcherAnim.gif')
+    #cocos.sprite.
+    #seq = pyglet.image.ImageGrid(raw, 290, 299)
+    #pitcher_img = Animation.from_image_sequence(seq, 0.07, False)
+    def __init__(self,imageInput,locx, locy):
+        super(Pitcher, self).__init__(image= imageInput, x=locx, y=locy)
+        self.setScale(0.3)
+        
+        print('init')
 
     def pitch(self):
-        GameLayer.GAMESTATE = GameState.PITCH
-        print('pitch')
-
-    def update(self): 
-        print('update')
-
+        self.ANIMPLAYING = True
+        if(self.ANIMSTATE == 0):
+            self.__init__('asset/pitcherInit.png',400,575)
+            self.ANIMSTATE += 1
+        elif(self.ANIMSTATE == 1):
+            self.__init__('asset/pitcherAnim1.png',400,575)
+            self.ANIMSTATE += 1
+        elif(self.ANIMSTATE == 2):
+            self.__init__('asset/pitcherAnim2.png',400,575)
+            self.ANIMSTATE += 1
+        elif(self.ANIMSTATE == 3):
+            self.__init__('asset/pitcherAnim3.png',400,575)
+            self.ANIMSTATE = 0
+            self.ANIMPLAYING = False
+            GameLayer.GAMESTATE = GameState.PITCH
+        time.sleep(0.15)
 
 class Hitter(Player):
-    def __init__(self, x, y):
-        super(Hitter, self).__init__('asset/hitter.png', x, y)
+    ANIMSTATE = 0
+    ANIMPLAYING = False
+    def __init__(self, inputImage,x, y):
+        super(Hitter, self).__init__(inputImage, x, y)
         self.cshape = cm.AARectShape((400,y),80,20)
-        #self.rotation = 40
+        self.setScale(0.7)
+
     def swing(self):
-    #    self.rotation -= 50
-        pass   
+        self.ANIMPLAYING = True
+        if(self.ANIMSTATE == 0):
+            self.__init__('asset/hitterInit.png',280,190)
+            self.ANIMSTATE += 1
+        elif(self.ANIMSTATE == 1):
+            self.__init__('asset/hitterAnim1.png',280,190)
+            self.ANIMSTATE += 1
+        elif(self.ANIMSTATE == 2):
+            self.__init__('asset/hitterAnim2.png',280,190)
+            self.ANIMSTATE += 1
+        elif(self.ANIMSTATE == 3):
+            self.__init__('asset/hitterAnim3.png',280,190)
+            self.ANIMSTATE += 1
+        elif(self.ANIMSTATE == 4):
+            self.ANIMSTATE = 0
+            self.ANIMPLAYING = False
+            GameLayer.GAMESTATE = GameState.DEFENCE
+        time.sleep(0.02)
         
 
 class Ball(cocos.sprite.Sprite):
@@ -335,20 +485,35 @@ class Ball(cocos.sprite.Sprite):
         self.position = pos = eu.Vector2(410,530)
         self.hitDegree = 0.0
         self.fallingPos = eu.Vector2()
+        self.moveCount = 0
+        self.shadow = cocos.sprite.Sprite('asset/ballShadow.png', position=(0, 0), scale= 0.5)
+        self.shadowDepth = -20
 
     def setScale(self, scaleInput):
         self.scale = scaleInput
 
     def update(self):
         self.move()
-    def convert_to_2d(self):
-        self.speed = eu.Vector2(self.speed[0]*(self.speed[2]*.3),self.speed[1]*(self.speed[2]*.3))
+
+
     def move(self):
         self.position += self.speed
         self.cshape.center += self.speed
+        self.moveCount += 1
+
+        if(GameLayer.GAMESTATE == GameState.DEFENCE):
+            self.shadow.position = self.position + eu.Vector2(0, self.shadowDepth)
+            if(self.moveCount<25):
+                self.shadowDepth -= 5
+                self.scale += 0.05
+            else:
+                self.shadowDepth += 5
+                self.scale -= 0.05
+        
     
     
     def hit(self, homeX, homeY):
+        self.moveCount = 0
         if(self.position[1] > 210):
             self.hitDegree = random.uniform(-1,-2)
         elif(self.position[1] > 190 and self.position[1] <= 210):
@@ -393,7 +558,7 @@ class MainMenu(Menu):
         
         hud_layer = HUD()
         scene.add(hud_layer, z=2)
-        scene.add(GameLayer(hud_layer, self.selDifficulty), z=1)
+        scene.add(GameLayer(hud_layer), z=1)
         scene.add(color_layer, z=0)
         cocos.director.director.push(scene)
         
